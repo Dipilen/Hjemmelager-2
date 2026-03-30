@@ -2,7 +2,7 @@
 <html lang="no">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Hjemmelager</title>
 
 <style>
@@ -13,185 +13,301 @@ button { background:black; color:white; border:none; border-radius:6px; }
 .row button { width:auto; }
 .item { background:white; padding:12px; border-radius:6px; margin-bottom:10px; }
 .muted { color:#666; }
+.tab-buttons { display:flex; gap:8px; margin-bottom:12px; }
+.tab-buttons button { flex:1; }
 .hidden { display:none; }
 img { max-width:100%; border-radius:6px; margin-top:8px; }
 </style>
 </head>
 
 <body>
-
 <h1>Hjemmelager</h1>
 
-<input id="search" placeholder="Søk i lager"/>
+<div class="tab-buttons">
+<button onclick="showTab('lager')">📦 Lager</button>
+<button onclick="showTab('innstillinger')">⚙️ Hurtigvalg</button>
+</div>
 
-<h3>Legg til vare</h3>
-<input id="navn" placeholder="Navn"/>
-<input id="type" placeholder="Type"/>
-<input id="lokasjon" placeholder="Lokasjon"/>
-<input id="hylle" placeholder="Hylle"/>
-<input id="boks" placeholder="Boks"/>
-<input id="dato" placeholder="Dato"/>
+<div id="lager">
+<input id="search" placeholder="Søk i lager" />
+
+<h3>Legg til / rediger vare</h3>
+<input id="navn" placeholder="Navn vare" />
+<input id="type" placeholder="Type" />
+
+<select id="lokasjon"></select>
+<select id="hylle"></select>
+<select id="boks"></select>
+
+<input id="dato" placeholder="Innkjøpsdato" />
 
 <div class="row">
 <button onclick="changeAntall(-1)">➖</button>
-<input id="antall" placeholder="Antall"/>
+<input id="antall" placeholder="Antall" />
 <button onclick="changeAntall(1)">➕</button>
 </div>
 
-<input id="pris" placeholder="Pris"/>
+<input id="pris" placeholder="Pris" />
 
-<input type="file" id="bilde" accept="image/*"/>
+<input type="file" id="bilde" accept="image/*" />
 
-<button onclick="addItem()">Lagre</button>
+<button onclick="addItem()">Lagre vare</button>
 
 <h3>Lager</h3>
 <div id="list"></div>
+
+<hr>
+<button onclick="backupData()">📤 Backup</button>
+<button onclick="restoreData()">📥 Gjenopprett</button>
+</div>
+
+<div id="innstillinger" class="hidden">
+<h3>Hurtigvalg</h3>
+
+<h4>Lokasjon</h4>
+<textarea id="lokasjonListe"></textarea>
+
+<h4>Hylle</h4>
+<textarea id="hylleListe"></textarea>
+
+<h4>Boks</h4>
+<textarea id="boksListe"></textarea>
+
+<button onclick="saveSettings()">Lagre</button>
+</div>
 
 <script>
 const listEl = document.getElementById('list');
 const searchEl = document.getElementById('search');
 
-let items = JSON.parse(localStorage.getItem('items') || '[]');
+const navn = document.getElementById('navn');
+const typeInput = document.getElementById('type');
+const lokasjonSelect = document.getElementById('lokasjon');
+const hylleSelect = document.getElementById('hylle');
+const boksSelect = document.getElementById('boks');
+const dato = document.getElementById('dato');
+const antall = document.getElementById('antall');
+const pris = document.getElementById('pris');
+const bildeInput = document.getElementById('bilde');
+
+const lokasjonListe = document.getElementById('lokasjonListe');
+const hylleListe = document.getElementById('hylleListe');
+const boksListe = document.getElementById('boksListe');
+
 let editIndex = null;
+let items = JSON.parse(localStorage.getItem('hjemmelager_items') || '[]');
 
-/* ---------- BILDEKOMPRESJON ---------- */
+const defaultSettings = {
+lokasjon: ['Garasje'],
+hylle: ['1'],
+boks: ['A']
+};
+
+let stored = JSON.parse(localStorage.getItem('hjemmelager_settings') || '{}');
+let settings = {
+lokasjon: stored.lokasjon || defaultSettings.lokasjon,
+hylle: stored.hylle || defaultSettings.hylle,
+boks: stored.boks || defaultSettings.boks
+};
+
+/* ---------- IMAGE COMPRESS ---------- */
 function compressImage(file){
-  return new Promise(resolve => {
-    const reader = new FileReader();
+return new Promise(resolve=>{
+const reader = new FileReader();
 
-    reader.onload = e => {
-      const img = new Image();
-      img.src = e.target.result;
+reader.onload = e=>{
+const img = new Image();
+img.src = e.target.result;
 
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
+img.onload = ()=>{
+const canvas = document.createElement('canvas');
+const maxWidth = 600;
+const scale = Math.min(1, maxWidth / img.width);
 
-        const maxWidth = 600;
-        const scale = maxWidth / img.width;
+canvas.width = img.width * scale;
+canvas.height = img.height * scale;
 
-        canvas.width = maxWidth;
-        canvas.height = img.height * scale;
+const ctx = canvas.getContext('2d');
+ctx.drawImage(img,0,0,canvas.width,canvas.height);
 
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+resolve(canvas.toDataURL('image/jpeg',0.7));
+};
+};
 
-        const compressed = canvas.toDataURL('image/jpeg', 0.7);
-        resolve(compressed);
-      };
-    };
+reader.readAsDataURL(file);
+});
+}
 
-    reader.readAsDataURL(file);
-  });
+/* ---------- UI ---------- */
+function showTab(tab){
+document.getElementById('lager').classList.add('hidden');
+document.getElementById('innstillinger').classList.add('hidden');
+document.getElementById(tab).classList.remove('hidden');
+}
+
+function buildSelect(select, values, label){
+select.innerHTML = `<option value="">Velg ${label}</option>`;
+values.forEach(v=>{
+const o = document.createElement('option');
+o.value = v;
+o.textContent = v;
+select.appendChild(o);
+});
+}
+
+function rebuildAllSelects(){
+buildSelect(lokasjonSelect, settings.lokasjon, 'lokasjon');
+buildSelect(hylleSelect, settings.hylle, 'hylle');
+buildSelect(boksSelect, settings.boks, 'boks');
+}
+
+/* ---------- SETTINGS ---------- */
+function saveSettings(){
+settings.lokasjon = lokasjonListe.value.split('\n').filter(Boolean);
+settings.hylle = hylleListe.value.split('\n').filter(Boolean);
+settings.boks = boksListe.value.split('\n').filter(Boolean);
+
+localStorage.setItem('hjemmelager_settings', JSON.stringify(settings));
+rebuildAllSelects();
+alert('Lagret');
+showTab('lager');
 }
 
 /* ---------- ADD ITEM ---------- */
 async function addItem(){
-  const file = document.getElementById('bilde').files[0];
+let imageData = '';
 
-  let imageData = '';
+if(bildeInput.files[0]){
+imageData = await compressImage(bildeInput.files[0]);
+}
 
-  if(file){
-    imageData = await compressImage(file);
-  }
+const item = {
+navn: navn.value.trim(),
+type: typeInput.value,
+lokasjon: lokasjonSelect.value,
+hylle: hylleSelect.value,
+boks: boksSelect.value,
+dato: dato.value,
+antall: antall.value,
+pris: pris.value,
+bilde: imageData
+};
 
-  const item = {
-    navn: navn.value,
-    type: type.value,
-    lokasjon: lokasjon.value,
-    hylle: hylle.value,
-    boks: boks.value,
-    dato: dato.value,
-    antall: antall.value,
-    pris: pris.value,
-    bilde: imageData
-  };
+if(!item.navn) return alert('Navn mangler');
 
-  if(!item.navn) return alert('Navn mangler');
+if(editIndex !== null) items[editIndex] = item;
+else items.push(item);
 
-  if(editIndex !== null){
-    items[editIndex] = item;
-    editIndex = null;
-  } else {
-    items.push(item);
-  }
-
-  localStorage.setItem('items', JSON.stringify(items));
-
-  clearForm();
-  render();
+localStorage.setItem('hjemmelager_items', JSON.stringify(items));
+render();
+clearForm();
 }
 
 /* ---------- RENDER ---------- */
 function render(){
-  const q = searchEl.value.toLowerCase();
-  listEl.innerHTML = '';
+const q = searchEl.value.toLowerCase();
+listEl.innerHTML = '';
 
-  items
-    .filter(i => Object.values(i).some(v => String(v).toLowerCase().includes(q)))
-    .forEach((i,index)=>{
+items.filter(i=>Object.values(i).some(v=>String(v).toLowerCase().includes(q)))
+.forEach((i,index)=>{
+const d = document.createElement('div');
+d.className = 'item';
 
-      const d = document.createElement('div');
-      d.className = 'item';
+d.innerHTML = `
+<b>${i.navn}</b> <span class="muted">(${i.type||'-'})</span><br>
+${i.bilde ? `<img src="${i.bilde}">` : ''}
+<span class="muted">${i.lokasjon||'-'} – Hylle ${i.hylle||'-'}, Boks ${i.boks||'-'}</span><br>
+Antall: ${i.antall||'-'} | Pris: ${i.pris||'-'}<br><br>
+<button onclick="editItem(${index})">Rediger</button>
+<button onclick="deleteItem(${index})">Slett</button>
+`;
 
-      d.innerHTML = `
-        <b>${i.navn}</b> <span class="muted">(${i.type||''})</span><br>
-        ${i.bilde ? `<img src="${i.bilde}">` : ''}
-        <span class="muted">${i.lokasjon||''} - Hylle ${i.hylle||''}, Boks ${i.boks||''}</span><br>
-        Antall: ${i.antall||''} | Pris: ${i.pris||''}<br><br>
-        <button onclick="editItem(${index})">Rediger</button>
-        <button onclick="deleteItem(${index})">Slett</button>
-      `;
-
-      listEl.appendChild(d);
-    });
+listEl.appendChild(d);
+});
 }
 
-/* ---------- EDIT ---------- */
+/* ---------- EDIT / DELETE ---------- */
 function editItem(index){
-  const i = items[index];
-
-  navn.value = i.navn;
-  type.value = i.type;
-  lokasjon.value = i.lokasjon;
-  hylle.value = i.hylle;
-  boks.value = i.boks;
-  dato.value = i.dato;
-  antall.value = i.antall;
-  pris.value = i.pris;
-
-  editIndex = index;
-  window.scrollTo({top:0});
+const i = items[index];
+navn.value = i.navn;
+typeInput.value = i.type;
+lokasjonSelect.value = i.lokasjon;
+hylleSelect.value = i.hylle;
+boksSelect.value = i.boks;
+dato.value = i.dato;
+antall.value = i.antall;
+pris.value = i.pris;
+editIndex = index;
+window.scrollTo({top:0});
 }
 
-/* ---------- DELETE ---------- */
 function deleteItem(index){
-  if(!confirm('Slette?')) return;
-
-  items.splice(index,1);
-  localStorage.setItem('items', JSON.stringify(items));
-  render();
+if(!confirm('Slette?')) return;
+items.splice(index,1);
+localStorage.setItem('hjemmelager_items', JSON.stringify(items));
+render();
 }
 
-/* ---------- CLEAR ---------- */
+/* ---------- OTHER ---------- */
 function clearForm(){
-  document.querySelectorAll('input').forEach(i=>{
-    if(i.type !== 'file') i.value = '';
-  });
-
-  document.getElementById('bilde').value = '';
+document.querySelectorAll('input').forEach(i=>{
+if(i.type !== 'file') i.value = '';
+});
+bildeInput.value = '';
+editIndex = null;
 }
 
-/* ---------- ANTALL ---------- */
 function changeAntall(d){
-  antall.value = Math.max(0, Number(antall.value||0)+d);
+antall.value = Math.max(0, Number(antall.value||0)+d);
 }
 
-/* ---------- SEARCH ---------- */
 searchEl.addEventListener('input', render);
 
-/* ---------- INIT ---------- */
-render();
-</script>
+/* ---------- BACKUP ---------- */
+function backupData(){
+const data = {items, settings};
+const blob = new Blob([JSON.stringify(data)], {type:'application/json'});
+const a = document.createElement('a');
+a.href = URL.createObjectURL(blob);
+a.download = 'backup.json';
+a.click();
+}
 
+function restoreData(){
+const input = document.createElement('input');
+input.type = 'file';
+
+input.onchange = e=>{
+const file = e.target.files[0];
+const reader = new FileReader();
+
+reader.onload = evt=>{
+const data = JSON.parse(evt.target.result);
+items = data.items || [];
+settings = data.settings || settings;
+
+localStorage.setItem('hjemmelager_items', JSON.stringify(items));
+localStorage.setItem('hjemmelager_settings', JSON.stringify(settings));
+
+rebuildAllSelects();
+render();
+};
+reader.readAsText(file);
+};
+
+input.click();
+}
+
+/* ---------- INIT ---------- */
+function init(){
+lokasjonListe.value = settings.lokasjon.join('\n');
+hylleListe.value = settings.hylle.join('\n');
+boksListe.value = settings.boks.join('\n');
+rebuildAllSelects();
+render();
+}
+
+init();
+</script>
 </body>
 </html>
